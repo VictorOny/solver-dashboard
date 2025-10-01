@@ -1,0 +1,203 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Solver-Style Hand Matrix</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #191e2b;
+    --grid: #242a39;
+    --text: #e6edf3;
+    --muted: #a6afbe;
+    --accent: #60a5fa;
+    --border: #2a3446;
+
+    /* Bars (keep solver-ish palette: bets = orange hues, checks = green) */
+    --bet25: #f97316; /* orange 500 */
+    --bet16: #f59e0b; /* amber 500 */
+    --check: #22c55e; /* green 500 */
+  }
+  html, body { background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin:0; }
+  .wrap { display:grid; grid-template-columns: 1fr 420px; gap:16px; padding:16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding:14px; box-shadow: 0 10px 24px rgba(0,0,0,.25); }
+  .title { font-weight:700; letter-spacing:.2px; margin-bottom:8px; }
+  .controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .pill { padding:6px 10px; border:1px solid var(--border); border-radius: 999px; cursor:pointer; user-select:none; background:#111622; }
+  .pill.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .matrix { display:grid; grid-template-columns: repeat(13, 1fr); gap:2px; background: var(--grid); padding:2px; border-radius:10px; }
+  .cell { position:relative; aspect-ratio:1/1; border-radius:6px; background:#1a2130; border:1px solid rgba(255,255,255,.04); overflow:hidden; cursor:pointer; }
+  .cell .handlab { position:absolute; left:6px; top:6px; font-size:11px; color:#cfd6e6; }
+  .cell .bars { position:absolute; left:6px; right:6px; bottom:6px; display:flex; flex-direction:column; gap:3px; }
+  .mini { height:8px; background:#0e1422; border:1px solid #2a3346; border-radius:6px; position:relative; overflow:hidden; }
+  .mini .fill { position:absolute; left:0; top:0; bottom:0; }
+  .mini .b25 { background: var(--bet25); }
+  .mini .b16 { background: var(--bet16); }
+  .mini .bck { background: var(--check); }
+  .cell.empty { background:#121826; color:#475067; }
+  .legendrow { display:flex; gap:10px; align-items:center; margin-top:10px; }
+  .dot { width:10px; height:10px; border-radius:50%; }
+  .small { font-size:12px; color: var(--muted); }
+  .side h3 { margin:.2rem 0 .6rem; font-size:18px; }
+  .hint { color:#9aa4b2; font-size:12px; margin-top:6px; }
+  .tilelist { display:grid; grid-template-columns: 1fr; gap:8px; max-height:70vh; overflow:auto; padding-right:4px; }
+  .tile { border:1px solid var(--border); border-radius:12px; padding:10px; background:#0f1424; }
+  .tileHead { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; font-weight:600;}
+  .barrow { display:flex; align-items:center; gap:8px; margin:6px 0; }
+  .label { width:60px; font-size:12px; color:var(--muted); }
+  .bar { flex:1; height:16px; background:#0b1222; border-radius:8px; position:relative; overflow:hidden; border:1px solid #1f2a40; }
+  .fill2 { position:absolute; left:0; top:0; bottom:0; border-radius:8px; }
+  .v25 { background: var(--bet25); }
+  .v16 { background: var(--bet16); }
+  .vck { background: var(--check); }
+  .pct { width:56px; text-align:right; font-variant-numeric: tabular-nums; }
+  .lock { float:right; font-size:12px; color: var(--muted); }
+  @media (max-width: 980px) { .wrap { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <div class="title">Hand Matrix</div>
+    <div class="controls">
+      <div class="small">Tint cells by:</div>
+      <div class="pill active" data-key="bet25">BET 25</div>
+      <div class="pill" data-key="bet16">BET 16</div>
+      <div class="pill" data-key="check">CHECK</div>
+      <div class="small" style="margin-left:auto;">Hover a cell to inspect • Click to lock</div>
+    </div>
+    <div id="matrix" class="matrix"></div>
+    <div class="legendrow">
+      <div class="dot" style="background:var(--bet25)"></div><div class="small">BET 25</div>
+      <div class="dot" style="background:var(--bet16)"></div><div class="small">BET 16</div>
+      <div class="dot" style="background:var(--check)"></div><div class="small">CHECK</div>
+    </div>
+  </div>
+  <div class="card side">
+    <div class="title">Details <span class="lock" id="lockState">[unlocked]</span></div>
+    <h3 id="handTitle">—</h3>
+    <div class="small" id="combocount"></div>
+    <div id="tiles" class="tilelist"></div>
+    <div class="hint">Each combo tile shows 3 bars: Bet 25, Bet 16, Check.</div>
+  </div>
+</div>
+<script>
+const DATA = {"ranks": ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"], "labels": [["AA", "AKo", "AQo", "AJo", "ATo", "A9o", "A8o", "A7o", "A6o", "A5o", "A4o", "A3o", "A2o"], ["AKs", "KK", "KQo", "KJo", "KTo", "K9o", "K8o", "K7o", "K6o", "K5o", "K4o", "K3o", "K2o"], ["AQs", "KQs", "QQ", "QJo", "QTo", "Q9o", "Q8o", "Q7o", "Q6o", "Q5o", "Q4o", "Q3o", "Q2o"], ["AJs", "KJs", "QJs", "JJ", "JTo", "J9o", "J8o", "J7o", "J6o", "J5o", "J4o", "J3o", "J2o"], ["ATs", "KTs", "QTs", "JTs", "TT", "T9o", "T8o", "T7o", "T6o", "T5o", "T4o", "T3o", "T2o"], ["A9s", "K9s", "Q9s", "J9s", "T9s", "99", "98o", "97o", "96o", "95o", "94o", "93o", "92o"], ["A8s", "K8s", "Q8s", "J8s", "T8s", "98s", "88", "87o", "86o", "85o", "84o", "83o", "82o"], ["A7s", "K7s", "Q7s", "J7s", "T7s", "97s", "87s", "77", "76o", "75o", "74o", "73o", "72o"], ["A6s", "K6s", "Q6s", "J6s", "T6s", "96s", "86s", "76s", "66", "65o", "64o", "63o", "62o"], ["A5s", "K5s", "Q5s", "J5s", "T5s", "95s", "85s", "75s", "65s", "55", "54o", "53o", "52o"], ["A4s", "K4s", "Q4s", "J4s", "T4s", "94s", "84s", "74s", "64s", "54s", "44", "43o", "42o"], ["A3s", "K3s", "Q3s", "J3s", "T3s", "93s", "83s", "73s", "63s", "53s", "43s", "33", "32o"], ["A2s", "K2s", "Q2s", "J2s", "T2s", "92s", "82s", "72s", "62s", "52s", "42s", "32s", "22"]], "averages": {"bet25": [[91.79531435000001, 86.89466814166667, 100.0, 81.76059395, 64.73671584000002, null, null, null, null, null, null, null, null], [43.24574695, 100.0, 76.403789078, 60.33675997999999, 48.380476800000004, null, null, null, null, null, null, null, null], [50.0, 66.66666666666667, 36.63608236666666, 87.099763, null, null, null, null, null, null, null, null, null], [87.29669053333333, 83.51757227499999, 93.67761613333334, 68.0032283, null, null, null, null, null, null, null, null, null], [16.275878733333332, 59.27495585, 15.700079, 69.055545325, 26.8577367, null, null, null, null, null, null, null, null], [37.32605205, 69.62226927500001, 48.073109966666664, 54.6986766, 87.5638515, 0.0, null, null, null, null, null, null, null], [64.76482002499999, 57.263350474999996, 12.426211433333334, null, 61.801256975, 0.0, 0.0, null, null, null, null, null, null], [38.464809466666665, 33.1275361, null, null, null, null, 0.0, 75.2567808, null, null, null, null, null], [38.18282485, 0.0, null, null, null, null, null, 0.0, 0.0, null, null, null, null], [24.133896833333335, 0.0, null, null, null, null, null, null, 38.1210834, 68.27359593333334, null, null, null], [14.0032947, null, null, null, null, null, null, null, null, 33.138058566666665, null, null, null], [20.57607175, null, null, null, null, null, null, null, null, null, null, null, null], [89.94345266666669, null, null, null, null, null, null, null, null, null, null, null, null]], "bet16": [[8.20468621, 12.675455958333336, 0.0, 14.954472050000001, 32.03788892, null, null, null, null, null, null, null, null], [51.44328175, 0.0, 22.2942274125, 27.732156279999998, 34.6789948625, null, null, null, null, null, null, null, null], [50.0, 33.333333333333336, 61.78271273333334, 12.9002373798675, null, null, null, null, null, null, null, null, null], [11.173360533333332, 16.29625075, 6.322384866666667, 22.364802151666666, null, null, null, null, null, null, null, null, null], [83.72412126666667, 13.985395425, 82.93955526666667, 27.01312005, 54.1223819, null, null, null, null, null, null, null, null], [62.191943075, 29.305773225000003, 37.11299746666666, 27.686151125000002, 4.096001025, 56.54219736666667, null, null, null, null, null, null, null], [34.722846749999995, 17.739656755, 0.0, null, 10.265088825, 3.948841625, 0.0, null, null, null, null, null, null], [14.639591909999998, 12.6131352, null, null, null, null, 0.0, 20.6063941, null, null, null, null, null], [8.3816664225, 0.0, null, null, null, null, null, 0.0, 0.0, null, null, null, null], [28.9670333, 0.0, null, null, null, null, null, null, 35.0547075, 31.726406033333333, null, null, null], [4.315560675, null, null, null, null, null, null, null, null, 0.0, null, null, null], [6.484568875, null, null, null, null, null, null, null, null, null, null, null, null], [0.0, null, null, null, null, null, null, null, null, null, null, null, null]], "check": [[0.0, 0.42987600125, 0.0, 3.2849342110000004, 3.2253951959999996, null, null, null, null, null, null, null, null], [5.31097204, 0.0, 1.3019827945125, 11.931082417999999, 16.94052965, null, null, null, null, null, null, null, null], [0.0, 0.0, 1.5812033073333334, 0.0, null, null, null, null, null, null, null, null, null], [1.5299507733333335, 0.1861756085, 0.0, 9.631968975, null, null, null, null, null, null, null, null, null], [0.0, 26.739647355000002, 1.360367782, 3.9313340772500003, 19.019881735000002, null, null, null, null, null, null, null, null], [0.48200544, 1.0719535485, 14.813897033333333, 17.61517525, 8.3401471075, 43.45780363333333, null, null, null, null, null, null, null], [0.5123317255000001, 24.996993125000003, 87.57378856666666, null, 27.9336506575, 96.051158, 100.0, null, null, null, null, null, null], [46.89559586666667, 54.259330999999996, null, null, null, null, 100.0, 4.136823613333333, null, null, null, null, null], [53.435508324999994, 100.0, null, null, null, null, null, 100.0, 100.0, null, null, null, null], [46.89907381333333, 100.0, null, null, null, null, null, null, 26.8242091, 0.0, null, null, null], [81.681145725, null, null, null, null, null, null, null, null, 66.861941355, null, null, null], [72.93935755, null, null, null, null, null, null, null, null, null, null, null, null], [10.05654808, null, null, null, null, null, null, null, null, null, null, null, null]]}, "combos": {"54s": [{"combo": "5c4c", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "5d4d", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "5s4s", "bet25": 99.4141757, "bet16": 0.0, "check": 0.585824065}], "76s": [{"combo": "7c6c", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "7d6d", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "7h6h", "bet25": 0.0, "bet16": 0.0, "check": 100.0}], "87s": [{"combo": "8c7c", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "8d7d", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "8h7h", "bet25": 0.0, "bet16": 0.0, "check": 100.0}], "98s": [{"combo": "9c8c", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "9d8d", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "9h8h", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "9s8s", "bet25": 0.0, "bet16": 15.7953665, "check": 84.204632}], "T8s": [{"combo": "Tc8c", "bet25": 63.5399997, "bet16": 0.0, "check": 36.4599973}, {"combo": "Td8d", "bet25": 58.0989838, "bet16": 0.0, "check": 41.9010133}, {"combo": "Th8h", "bet25": 27.1503955, "bet16": 41.0603553, "check": 31.7892432}, {"combo": "Ts8s", "bet25": 98.4156489, "bet16": 0.0, "check": 1.58434883}], "T9s": [{"combo": "Tc9c", "bet25": 96.1836517, "bet16": 0.0, "check": 3.8163472}, {"combo": "Td9d", "bet25": 79.2913735, "bet16": 16.3840041, "check": 4.32462282}, {"combo": "Th9h", "bet25": 98.8639951, "bet16": 0.0, "check": 1.13600111}, {"combo": "Ts9s", "bet25": 75.9163857, "bet16": 0.0, "check": 24.0836173}], "J9s": [{"combo": "Jc9c", "bet25": 62.2220397, "bet16": 23.3002275, "check": 14.4777313}, {"combo": "Jd9d", "bet25": 37.6614749, "bet16": 38.9166594, "check": 23.4218702}, {"combo": "Jh9h", "bet25": 32.7039093, "bet16": 48.5277176, "check": 18.7683761}, {"combo": "Js9s", "bet25": 86.2072825, "bet16": 0.0, "check": 13.7927234}], "JTs": [{"combo": "JcTc", "bet25": 52.132988, "bet16": 45.2241302, "check": 2.64288168}, {"combo": "JdTd", "bet25": 71.0522115, "bet16": 27.4176925, "check": 1.53010059}, {"combo": "JhTh", "bet25": 53.2193899, "bet16": 35.4106575, "check": 11.3699496}, {"combo": "JsTs", "bet25": 99.8175919, "bet16": 0.0, "check": 0.182404439}], "Q8s": [{"combo": "Qc8c", "bet25": 37.2786343, "bet16": 0.0, "check": 62.7213657}, {"combo": "Qh8h", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "Qs8s", "bet25": 0.0, "bet16": 0.0, "check": 100.0}], "Q9s": [{"combo": "Qc9c", "bet25": 64.4725442, "bet16": 24.6848866, "check": 10.8425707}, {"combo": "Qh9h", "bet25": 22.2191542, "bet16": 59.6676648, "check": 18.113187}, {"combo": "Qs9s", "bet25": 57.5276315, "bet16": 26.986441, "check": 15.4859334}], "QTs": [{"combo": "QcTc", "bet25": 0.0, "bet16": 96.4847744, "check": 3.51522714}, {"combo": "QhTh", "bet25": 0.0, "bet16": 99.4341254, "check": 0.565876206}, {"combo": "QsTs", "bet25": 47.100237, "bet16": 52.899766, "check": 0.0}], "QJs": [{"combo": "QcJc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "QhJh", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "QsJs", "bet25": 81.0328484, "bet16": 18.9671546, "check": 0.0}], "QJo": [{"combo": "QcJh", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "QcJs", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "QhJc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "QhJd", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "QhJs", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "QsJc", "bet25": 99.9961495, "bet16": 0.00385205894, "check": 0.0}, {"combo": "QsJd", "bet25": 96.8019545, "bet16": 3.19804698, "check": 0.0}, {"combo": "QsJh", "bet25": 0.0, "bet16": 100.0, "check": 0.0}], "K6s": [{"combo": "Kc6c", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "Kd6d", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "Kh6h", "bet25": 0.0, "bet16": 0.0, "check": 100.0}], "K7s": [{"combo": "Kc7c", "bet25": 49.1279453, "bet16": 6.40150681, "check": 44.4705486}, {"combo": "Kd7d", "bet25": 11.7897145, "bet16": 6.11920469, "check": 82.0910811}, {"combo": "Kh7h", "bet25": 38.4649485, "bet16": 25.3186941, "check": 36.2163633}], "K8s": [{"combo": "Kc8c", "bet25": 55.2807748, "bet16": 15.2168185, "check": 29.5024067}, {"combo": "Kd8d", "bet25": 54.5802236, "bet16": 9.20776352, "check": 36.2120181}, {"combo": "Kh8h", "bet25": 69.1815257, "bet16": 20.5888107, "check": 10.2296613}, {"combo": "Ks8s", "bet25": 50.0108778, "bet16": 25.9452343, "check": 24.0438864}], "K9s": [{"combo": "Kc9c", "bet25": 67.8209305, "bet16": 30.167073, "check": 2.01198496}, {"combo": "Kd9d", "bet25": 62.2460723, "bet16": 37.5698268, "check": 0.184104254}, {"combo": "Kh9h", "bet25": 66.1729991, "bet16": 33.8269979, "check": 0.0}, {"combo": "Ks9s", "bet25": 82.2490752, "bet16": 15.6591952, "check": 2.09172498}], "KTs": [{"combo": "KcTc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KdTd", "bet25": 41.2461013, "bet16": 0.0, "check": 58.7538958}, {"combo": "KhTh", "bet25": 95.8537221, "bet16": 0.0, "check": 4.14627232}, {"combo": "KsTs", "bet25": 0.0, "bet16": 55.9415817, "check": 44.0584213}], "KJs": [{"combo": "KcJc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KdJd", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KhJh", "bet25": 76.4176905, "bet16": 23.582314, "check": 0.0}, {"combo": "KsJs", "bet25": 57.6525986, "bet16": 41.602689, "check": 0.744702434}], "KQs": [{"combo": "KcQc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KhQh", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KsQs", "bet25": 0.0, "bet16": 100.0, "check": 0.0}], "KJo": [{"combo": "KcJh", "bet25": 94.6559548, "bet16": 0.0, "check": 5.34404628}, {"combo": "KcJs", "bet25": 73.5871911, "bet16": 26.4128059, "check": 0.0}, {"combo": "KdJh", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "KdJs", "bet25": 86.0332251, "bet16": 0.0, "check": 13.9667779}, {"combo": "KhJc", "bet25": 63.7378991, "bet16": 36.262098, "check": 0.0}, {"combo": "KhJd", "bet25": 26.6975254, "bet16": 73.3024716, "check": 0.0}, {"combo": "KhJs", "bet25": 89.4505441, "bet16": 10.5494536, "check": 0.0}, {"combo": "KsJc", "bet25": 61.8719816, "bet16": 38.1280243, "check": 0.0}, {"combo": "KsJd", "bet25": 77.0861506, "bet16": 22.9138434, "check": 0.0}, {"combo": "KsJh", "bet25": 30.247128, "bet16": 69.752866, "check": 0.0}], "KQo": [{"combo": "KcQh", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KcQs", "bet25": 75.6083131, "bet16": 24.3195325, "check": 0.0721557881}, {"combo": "KdQh", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KdQs", "bet25": 77.2034824, "bet16": 19.4403321, "check": 3.35617885}, {"combo": "KhQc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KhQs", "bet25": 99.8286963, "bet16": 0.0, "check": 0.171303528}, {"combo": "KsQc", "bet25": 0.566874724, "bet16": 96.4688182, "check": 2.96430755}, {"combo": "KsQh", "bet25": 58.0229461, "bet16": 38.1251365, "check": 3.85191664}], "KTo": [{"combo": "KcTs", "bet25": 24.2208526, "bet16": 52.6504099, "check": 23.128745}, {"combo": "KdTs", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "KhTc", "bet25": 0.0, "bet16": 100.0, "check": 0.0}, {"combo": "KhTd", "bet25": 0.0, "bet16": 100.0, "check": 0.0}, {"combo": "KhTs", "bet25": 62.8229618, "bet16": 24.781549, "check": 12.3954922}, {"combo": "KsTc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KsTd", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KsTh", "bet25": 100.0, "bet16": 0.0, "check": 0.0}], "A2s": [{"combo": "Ac2c", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "Ad2d", "bet25": 93.1694269, "bet16": 0.0, "check": 6.83057234}, {"combo": "Ah2h", "bet25": 76.6609311, "bet16": 0.0, "check": 23.3390719}], "A3s": [{"combo": "Ac3c", "bet25": 32.4473739, "bet16": 0.0, "check": 67.5526202}, {"combo": "Ad3d", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "Ah3h", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "As3s", "bet25": 49.8569131, "bet16": 25.9382755, "check": 24.20481}], "A4s": [{"combo": "Ac4c", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "Ad4d", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "Ah4h", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "As4s", "bet25": 56.0131788, "bet16": 17.2622427, "check": 26.7245829}], "A5s": [{"combo": "Ac5c", "bet25": 0.0, "bet16": 42.8434789, "check": 57.1565211}, {"combo": "Ad5d", "bet25": 0.0, "bet16": 23.6195549, "check": 76.3804495}, {"combo": "As5s", "bet25": 72.4016905, "bet16": 20.4380661, "check": 7.16025084}], "A6s": [{"combo": "Ac6c", "bet25": 68.617332, "bet16": 9.38673988, "check": 21.9959304}, {"combo": "Ad6d", "bet25": 14.1487479, "bet16": 2.0034425, "check": 83.8478088}, {"combo": "Ah6h", "bet25": 0.0, "bet16": 2.47381851, "check": 97.5261807}, {"combo": "As6s", "bet25": 69.9652195, "bet16": 19.6626648, "check": 10.3721134}], "A7s": [{"combo": "Ac7c", "bet25": 46.7403978, "bet16": 17.6112264, "check": 35.6483757}, {"combo": "Ad7d", "bet25": 0.0, "bet16": 7.56365433, "check": 92.4363434}, {"combo": "Ah7h", "bet25": 68.6540306, "bet16": 18.743895, "check": 12.6020685}], "A8s": [{"combo": "Ac8c", "bet25": 54.0441334, "bet16": 45.9558636, "check": 0.0}, {"combo": "Ad8d", "bet25": 53.6850154, "bet16": 45.449701, "check": 0.865283702}, {"combo": "Ah8h", "bet25": 69.988668, "bet16": 28.8272798, "check": 1.1840432}, {"combo": "As8s", "bet25": 81.3414633, "bet16": 18.6585426, "check": 0.0}], "A9s": [{"combo": "Ac9c", "bet25": 33.5109383, "bet16": 66.4890587, "check": 0.0}, {"combo": "Ad9d", "bet25": 0.0, "bet16": 100.0, "check": 0.0}, {"combo": "Ah9h", "bet25": 65.4563487, "bet16": 34.5436573, "check": 0.0}, {"combo": "As9s", "bet25": 50.3369212, "bet16": 47.7350563, "check": 1.92802176}], "ATs": [{"combo": "AcTc", "bet25": 0.0, "bet16": 100.0, "check": 0.0}, {"combo": "AdTd", "bet25": 0.0, "bet16": 100.0, "check": 0.0}, {"combo": "AsTs", "bet25": 48.8276362, "bet16": 51.1723638, "check": 0.0}], "AJs": [{"combo": "AcJc", "bet25": 86.9603693, "bet16": 13.0396321, "check": 0.0}, {"combo": "AdJd", "bet25": 79.519552, "bet16": 20.4804495, "check": 0.0}, {"combo": "AsJs", "bet25": 95.4101503, "bet16": 0.0, "check": 4.58985232}], "AQs": [{"combo": "AcQc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AsQs", "bet25": 0.0, "bet16": 100.0, "check": 0.0}], "AKs": [{"combo": "AcKc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AdKd", "bet25": 57.8185499, "bet16": 27.6376545, "check": 14.5437971}, {"combo": "AhKh", "bet25": 0.0, "bet16": 100.0, "check": 0.0}, {"combo": "AsKs", "bet25": 15.1644379, "bet16": 78.1354725, "check": 6.70009106}], "AKo": [{"combo": "AcKd", "bet25": 50.7776797, "bet16": 49.2223203, "check": 0.0}, {"combo": "AcKh", "bet25": 94.1109896, "bet16": 5.88901192, "check": 0.0}, {"combo": "AcKs", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AdKc", "bet25": 81.0179353, "bet16": 18.1427255, "check": 0.839338265}, {"combo": "AdKh", "bet25": 93.2236373, "bet16": 6.77636638, "check": 0.0}, {"combo": "AdKs", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AhKc", "bet25": 69.64643, "bet16": 29.0711105, "check": 1.28246127}, {"combo": "AhKd", "bet25": 71.5493143, "bet16": 28.4506828, "check": 0.0}, {"combo": "AhKs", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AsKc", "bet25": 92.6551759, "bet16": 7.34482631, "check": 0.0}, {"combo": "AsKd", "bet25": 89.7548556, "bet16": 7.20842779, "check": 3.03671248}, {"combo": "AsKh", "bet25": 100.0, "bet16": 0.0, "check": 0.0}], "ATo": [{"combo": "AcTh", "bet25": 49.6281236, "bet16": 50.3718734, "check": 0.0}, {"combo": "AcTs", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AdTh", "bet25": 0.0, "bet16": 100.0, "check": 0.0}, {"combo": "AdTs", "bet25": 78.7835598, "bet16": 16.3957343, "check": 4.82070856}, {"combo": "AhTc", "bet25": 62.8559172, "bet16": 37.1440828, "check": 0.0}, {"combo": "AhTd", "bet25": 69.5947349, "bet16": 30.4052651, "check": 0.0}, {"combo": "AhTs", "bet25": 72.5667536, "bet16": 0.0, "check": 27.4332434}, {"combo": "AsTc", "bet25": 69.0737367, "bet16": 30.9262633, "check": 0.0}, {"combo": "AsTd", "bet25": 70.4078197, "bet16": 29.5921832, "check": 0.0}, {"combo": "AsTh", "bet25": 74.4565129, "bet16": 25.5434871, "check": 0.0}], "AJo": [{"combo": "AcJh", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AcJs", "bet25": 83.3155036, "bet16": 14.9177462, "check": 1.76674761}, {"combo": "AdJh", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AdJs", "bet25": 70.5869377, "bet16": 10.5628148, "check": 18.850252}, {"combo": "AhJc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AhJd", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AhJs", "bet25": 42.137298, "bet16": 47.8289068, "check": 10.0337937}, {"combo": "AsJc", "bet25": 71.3684976, "bet16": 28.6315024, "check": 0.0}, {"combo": "AsJd", "bet25": 71.3066339, "bet16": 28.6933661, "check": 0.0}, {"combo": "AsJh", "bet25": 78.8910687, "bet16": 18.9103842, "check": 2.1985488}], "AQo": [{"combo": "AcQh", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AcQs", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AdQh", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AdQs", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AhQc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AhQs", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AsQc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AsQh", "bet25": 100.0, "bet16": 0.0, "check": 0.0}], "55": [{"combo": "5d5c", "bet25": 65.2825832, "bet16": 34.7174227, "check": 0.0}, {"combo": "5s5c", "bet25": 69.8857009, "bet16": 30.1142961, "check": 0.0}, {"combo": "5s5d", "bet25": 69.6525037, "bet16": 30.3474993, "check": 0.0}], "77": [{"combo": "7d7c", "bet25": 75.164336, "bet16": 24.8356566, "check": 0.0}, {"combo": "7h7c", "bet25": 75.642252, "bet16": 18.4357807, "check": 5.92196807}, {"combo": "7h7d", "bet25": 74.9637544, "bet16": 18.547745, "check": 6.48850277}], "88": [{"combo": "8d8c", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "8s8c", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "8s8d", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "8s8h", "bet25": 0.0, "bet16": 0.0, "check": 100.0}], "99": [{"combo": "9d9c", "bet25": 0.0, "bet16": 33.5362852, "check": 66.4637148}, {"combo": "9h9c", "bet25": 0.0, "bet16": 75.4820108, "check": 24.5179892}, {"combo": "9h9d", "bet25": 0.0, "bet16": 50.9182513, "check": 49.0817487}, {"combo": "9s9c", "bet25": 0.0, "bet16": 67.7364588, "check": 32.2635412}, {"combo": "9s9d", "bet25": 0.0, "bet16": 69.068557, "check": 30.931446}, {"combo": "9s9h", "bet25": 0.0, "bet16": 42.5116211, "check": 57.4883819}], "TT": [{"combo": "TdTc", "bet25": 0.0, "bet16": 52.2036791, "check": 47.7963239}, {"combo": "ThTc", "bet25": 0.0, "bet16": 95.9793746, "check": 4.02062498}, {"combo": "ThTd", "bet25": 0.0, "bet16": 97.2655416, "check": 2.73445863}, {"combo": "TsTc", "bet25": 48.938635, "bet16": 39.6249145, "check": 11.4364542}, {"combo": "TsTd", "bet25": 47.585085, "bet16": 39.6607816, "check": 12.7541289}, {"combo": "TsTh", "bet25": 64.6227002, "bet16": 0.0, "check": 35.3772998}], "JJ": [{"combo": "JdJc", "bet25": 51.0015726, "bet16": 35.537529, "check": 13.4608984}, {"combo": "JhJc", "bet25": 92.60934, "bet16": 4.26449701, "check": 3.12616415}, {"combo": "JhJd", "bet25": 83.9481413, "bet16": 11.5099154, "check": 4.54193875}, {"combo": "JsJc", "bet25": 55.4774344, "bet16": 34.7986966, "check": 9.72387195}, {"combo": "JsJd", "bet25": 47.9540467, "bet16": 37.8940672, "check": 14.1518906}, {"combo": "JsJh", "bet25": 77.0288348, "bet16": 10.1841077, "check": 12.78705}], "KK": [{"combo": "KdKc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KhKc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KhKd", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KsKc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KsKd", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "KsKh", "bet25": 100.0, "bet16": 0.0, "check": 0.0}], "AA": [{"combo": "AdAc", "bet25": 71.1008847, "bet16": 28.8991213, "check": 0.0}, {"combo": "AhAc", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AhAd", "bet25": 100.0, "bet16": 0.0, "check": 0.0}, {"combo": "AsAc", "bet25": 98.3146846, "bet16": 1.68531276, "check": 0.0}, {"combo": "AsAd", "bet25": 81.3563168, "bet16": 18.6436832, "check": 0.0}, {"combo": "AsAh", "bet25": 100.0, "bet16": 0.0, "check": 0.0}], "QQ": [{"combo": "QhQc", "bet25": 11.9542629, "bet16": 86.2008035, "check": 1.844934}, {"combo": "QsQc", "bet25": 29.7864467, "bet16": 69.9949861, "check": 0.218559592}, {"combo": "QsQh", "bet25": 68.1675375, "bet16": 29.1523486, "check": 2.68011633}], "66": [{"combo": "6s6c", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "6s6d", "bet25": 0.0, "bet16": 0.0, "check": 100.0}, {"combo": "6s6h", "bet25": 0.0, "bet16": 0.0, "check": 100.0}], "65s": [{"combo": "6s5s", "bet25": 38.1210834, "bet16": 35.0547075, "check": 26.8242091}], "K5s": [{"combo": "Ks5s", "bet25": 0.0, "bet16": 0.0, "check": 100.0}]}};
+
+function clamp01(x){ return Math.max(0, Math.min(1, x)); }
+function fmt(v) { return (v==null || isNaN(v)) ? '–' : (Math.round(v*10)/10).toFixed(1)+'%'; }
+
+// blue-ish tint for heatmap, mixed over base
+function tint(p) { 
+  if (p==null) return 'rgba(0,0,0,0)';
+  const t = clamp01(p/100);
+  const a = 0.25 + 0.35*t;
+  return `rgba(59,130,246,${a})`; // blue-500 with variable alpha
+}
+
+let currentKey = 'bet25';
+let locked = false;
+let lockedLabel = null;
+
+const mat = document.getElementById('matrix');
+
+function renderMatrix() { 
+  mat.innerHTML='';
+  for (let i=0;i<13;i++) { 
+    for (let j=0;j<13;j++) { 
+      const label = DATA.labels[i][j];
+      const v25 = DATA.averages['bet25'][i][j];
+      const v16 = DATA.averages['bet16'][i][j];
+      const vck = DATA.averages['check'][i][j];
+      const tintVal = DATA.averages[currentKey][i][j];
+
+      const cell = document.createElement('div');
+      cell.className = 'cell'+(v25==null && v16==null && vck==null?' empty':'');
+      cell.dataset.label = label;
+
+      // tint overlay
+      cell.style.boxShadow = `inset 0 0 0 9999px ${tint(tintVal)}`;
+
+      const hand = document.createElement('div');
+      hand.className = 'handlab';
+      hand.textContent = label;
+      cell.appendChild(hand);
+
+      const bars = document.createElement('div');
+      bars.className = 'bars';
+
+      function mini(val, cls){
+        const m = document.createElement('div'); m.className='mini';
+        const f = document.createElement('div'); f.className='fill '+cls; f.style.width = (val?Math.max(0,Math.min(100,val)):0)+'%';
+        m.appendChild(f); 
+        return m;
+      }
+      bars.appendChild(mini(v25,'b25'));
+      bars.appendChild(mini(v16,'b16'));
+      bars.appendChild(mini(vck,'bck'));
+      cell.appendChild(bars);
+
+      cell.addEventListener('mouseenter', ()=>{ if(!locked) showDetails(label); });
+      cell.addEventListener('click', ()=>{ 
+        if (locked && lockedLabel===label) { locked=false; lockedLabel=null; document.getElementById('lockState').textContent='[unlocked]'; }
+        else { locked=true; lockedLabel=label; document.getElementById('lockState').textContent='[locked]'; showDetails(label); }
+      });
+
+      mat.appendChild(cell);
+    }
+  }
+}
+
+function tileFor(c) {
+  const wrap = document.createElement('div');
+  wrap.className='tile';
+  const head = document.createElement('div');
+  head.className='tileHead';
+  head.innerHTML = `<div>${c.combo}</div><div style="color:#9aa4b2;font-size:12px;">${(c.bet25+c.bet16+c.check).toFixed(0)}%</div>`;
+  wrap.appendChild(head);
+
+  const rows=[
+    ['BET 25','v25',c.bet25],
+    ['BET 16','v16',c.bet16],
+    ['CHECK','vck',c.check],
+  ];
+  for (const [lab, cls, val] of rows) {
+    const row = document.createElement('div'); row.className='barrow';
+    const l = document.createElement('div'); l.className='label'; l.textContent = lab; row.appendChild(l);
+    const bar = document.createElement('div'); bar.className='bar';
+    const fill = document.createElement('div'); fill.className='fill2 '+cls; fill.style.width = Math.max(0, Math.min(100, val))+'%';
+    bar.appendChild(fill);
+    row.appendChild(bar);
+    const pct = document.createElement('div'); pct.className='pct'; pct.textContent = fmt(val);
+    row.appendChild(pct);
+    wrap.appendChild(row);
+  }
+  return wrap;
+}
+
+function showDetails(label) {
+  document.getElementById('handTitle').textContent = label;
+  const combos = DATA.combos[label] || [];
+  document.getElementById('combocount').textContent = combos.length ? (combos.length + ' combo(s) found') : 'No combos present in data';
+  const tiles = document.getElementById('tiles');
+  tiles.innerHTML='';
+  combos.sort((a,b)=> (b.bet25+b.bet16) - (a.bet25+a.bet16));
+  for (const c of combos) tiles.appendChild(tileFor(c));
+}
+
+document.querySelectorAll('.pill').forEach(el=>{
+  el.addEventListener('click', ()=>{
+    document.querySelectorAll('.pill').forEach(p=>p.classList.remove('active'));
+    el.classList.add('active');
+    currentKey = el.dataset.key;
+    renderMatrix();
+  });
+});
+
+renderMatrix();
+showDetails('AA');
+</script>
+</body>
+</html>
